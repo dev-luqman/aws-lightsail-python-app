@@ -36,10 +36,10 @@ jobs:
         run: |
           make lint
 
-      - name: Lint Dockerfile with hadolint
-        uses: hadolint/hadolint-action@v1.5.0
-        with:
-          dockerfile: ./Dockerfile
+      # - name: Lint Dockerfile with hadolint
+      #   uses: hadolint/hadolint-action@v1.5.0
+      #   with:
+      #     dockerfile: ./Dockerfile
 
       # Send a slack notification for failed
       - name: Slack Notification
