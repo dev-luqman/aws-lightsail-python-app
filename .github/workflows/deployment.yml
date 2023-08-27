@@ -1,0 +1,161 @@
+name: Exceed Backend workflow
+on:
+  push:
+    branches: [deploy]
+  pull_request:
+    branches: [deploy]
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v1
+        with:
+          python-version: 3.11
+
+      - uses: actions/cache@v3
+        id: cache
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.*') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install packages requirements
+        run: |
+          make install
+
+      - name: Run Linting files
+        run: |
+          make lint
+
+      - name: Lint Dockerfile with hadolint
+        uses: hadolint/hadolint-action@v1.5.0
+        with:
+          dockerfile: ./Dockerfile
+
+      # Send a slack notification for failed
+      - name: Slack Notification
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_CHANNEL: core-api-alert
+          SLACK_COLOR: ${{ job.status }}
+          SLACK_ICON: https://github.com/rtCamp.png?size=48
+          SLACK_MESSAGE: ${{ github.event.head_commit.message }}
+          SLACK_TITLE: Commit Message
+          SLACK_USERNAME: rtCamp
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK  }}
+        if: failure()
+
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    needs: integration
+    env:
+      IMAGE_TAG: latest
+      SERVICE_NAME: exceed-backend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Upgrade AWS CLI version and setup lightsailctl
+        run: |
+          aws --version
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          sudo ./aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update
+          which aws
+          aws --version
+          sudo curl "https://s3.us-west-2.amazonaws.com/lightsailctl/latest/linux-amd64/lightsailctl" -o "/usr/local/bin/lightsailctl"
+          sudo chmod +x /usr/local/bin/lightsailctl
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Create Build and Tag tag
+        env:
+          ECR_REPOSITORY: exceed_v1
+          IMAGE_SHA_TAG: ${{ github.sha }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_SHA_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_SHA_TAG
+
+      - name: Push the Docker Image to lightsail
+        env: 
+          IMAGE_SHA_TAG: ${{ github.sha }}
+          IMAGE_URL: 200010736301.dkr.ecr.us-east-1.amazonaws.com/exceed_v1:${{ github.sha }}
+        run: >
+          aws lightsail push-container-image
+          --service-name ${{ env.SERVICE_NAME }}
+          --image $IMAGE_URL
+          --region eu-west-3
+          --label git-push
+
+      - name: Save updated LIGHTSAIL_IMAGE_TAG 
+        run: |
+          echo "LIGHTSAIL_DOCKER_IMAGE=$(aws lightsail get-container-images --service-name ${{ env.SERVICE_NAME }} --region eu-west-3 | jq -r .containerImages[0].image)"  >> $GITHUB_ENV
+      
+      - name: Start New Deployment to Light Sail
+        run: |
+          aws lightsail create-container-service-deployment  --region eu-west-3 \
+          --service-name $SERVICE_NAME \
+          --output yaml \
+          --containers "{
+            \"$SERVICE_NAME\": {
+              \"image\": \"$LIGHTSAIL_DOCKER_IMAGE\",
+              \"environment\": {
+                  \"VERSION\": \"${{github.run_number}}\"
+                },
+              \"ports\": {
+                \"8000\": \"HTTP\"
+              }
+            }
+          }" \
+          --public-endpoint "{
+            \"containerName\": \"$SERVICE_NAME\",
+            \"containerPort\": 8000,
+            \"healthCheck\": {
+              \"path\": \"/healthcheck/liveness\",
+              \"intervalSeconds\": 10
+            }
+          }"
+
+      - name: Debug container logs Update
+        run: >
+          aws lightsail get-container-log
+          --region eu-west-3
+          --service-name ${{ env.SERVICE_NAME }}
+          --container-name exceed-backend
+          --output yaml
+
+
+      # Send a slack notification
+      - name: Slack Notification
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_CHANNEL: core-api-alert
+          SLACK_COLOR: ${{ job.status }}
+          SLACK_ICON: https://github.com/rtCamp.png?size=48
+          SLACK_MESSAGE: ${{ github.event.head_commit.message }}
+          SLACK_TITLE: Commit Message
+          SLACK_USERNAME: rtCamp
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK  }}
+        if: always()

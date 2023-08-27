@@ -1,0 +1,14 @@
+version: '3'
+services:
+  ProjectExceed:
+    image: exceed
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    environment: 
+        - VERSION =${VERSION}
+       
+    ports:
+      - 8000:8000
+    command: python app.py
+

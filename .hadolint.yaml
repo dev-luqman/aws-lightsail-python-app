@@ -1,0 +1,9 @@
+override:
+ error:
+   - DL3005
+ info:
+   - DL3045
+# label-schema:
+#  maintainer: text
+#  org.website: url
+# strict-labels: true
