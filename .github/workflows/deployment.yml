@@ -1,9 +1,9 @@
 name: Exceed Backend workflow
 on:
   push:
-    branches: [deploy]
+    branches: [main]
   pull_request:
-    branches: [deploy]
+    branches: [main]
 
 jobs:
   integration:
@@ -58,9 +58,6 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
     needs: integration
-    env:
-      IMAGE_TAG: latest
-      SERVICE_NAME: exceed-backend
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -79,8 +76,8 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v1
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
           aws-region: us-east-1
 
       - name: Login to Amazon ECR
@@ -89,37 +86,37 @@ jobs:
 
       - name: Create Build and Tag tag
         env:
-          ECR_REPOSITORY: exceed_v1
+          IMAGE_TAG: latest
           IMAGE_SHA_TAG: ${{ github.sha }}
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_SHA_TAG .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_SHA_TAG
+          docker build -t $ECR_REGISTRY/${{vars.ECR_REPOSITORY}}:$IMAGE_TAG .
+          docker build -t $ECR_REGISTRY/${{vars.ECR_REPOSITORY}}:$IMAGE_SHA_TAG .
+          docker push $ECR_REGISTRY/${{vars.ECR_REPOSITORY}}:$IMAGE_TAG
+          docker push $ECR_REGISTRY/${{vars.ECR_REPOSITORY}}:$IMAGE_SHA_TAG
 
       - name: Push the Docker Image to lightsail
         env: 
           IMAGE_SHA_TAG: ${{ github.sha }}
-          IMAGE_URL: 200010736301.dkr.ecr.us-east-1.amazonaws.com/exceed_v1:${{ github.sha }}
+          IMAGE_URL: ${{vars.LIGHTSAIL_IMAGE}}:${{ github.sha }}
         run: >
           aws lightsail push-container-image
-          --service-name ${{ env.SERVICE_NAME }}
+          --service-name ${{ vars.SERVICE_NAME }}
           --image $IMAGE_URL
-          --region eu-west-3
+          --region us-east-2
           --label git-push
 
       - name: Save updated LIGHTSAIL_IMAGE_TAG 
         run: |
-          echo "LIGHTSAIL_DOCKER_IMAGE=$(aws lightsail get-container-images --service-name ${{ env.SERVICE_NAME }} --region eu-west-3 | jq -r .containerImages[0].image)"  >> $GITHUB_ENV
+          echo "LIGHTSAIL_DOCKER_IMAGE=$(aws lightsail get-container-images --service-name ${{ vars.SERVICE_NAME }} --region us-east-2 | jq -r .containerImages[0].image)"  >> $GITHUB_ENV
       
       - name: Start New Deployment to Light Sail
         run: |
-          aws lightsail create-container-service-deployment  --region eu-west-3 \
-          --service-name $SERVICE_NAME \
+          aws lightsail create-container-service-deployment  --region us-east-2 \
+          --service-name ${{vars.SERVICE_NAME}} \
           --output yaml \
           --containers "{
-            \"$SERVICE_NAME\": {
+            \"${{vars.SERVICE_NAME}}\": {
               \"image\": \"$LIGHTSAIL_DOCKER_IMAGE\",
               \"environment\": {
                   \"VERSION\": \"${{github.run_number}}\"
@@ -130,7 +127,7 @@ jobs:
             }
           }" \
           --public-endpoint "{
-            \"containerName\": \"$SERVICE_NAME\",
+            \"containerName\": \"${{vars.SERVICE_NAME}}\",
             \"containerPort\": 8000,
             \"healthCheck\": {
               \"path\": \"/healthcheck/liveness\",
@@ -141,9 +138,9 @@ jobs:
       - name: Debug container logs Update
         run: >
           aws lightsail get-container-log
-          --region eu-west-3
-          --service-name ${{ env.SERVICE_NAME }}
-          --container-name exceed-backend
+          --region us-east-2
+          --service-name ${{ vars.SERVICE_NAME }}
+          --container-name ${{vars.SERVICE_NAME}}
           --output yaml
 
 
