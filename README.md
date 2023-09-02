@@ -1,6 +1,6 @@
 
 
-# Exceed Backend Workflow 🚀
+# AWS Lightsail Container Workflow 🚀
 
 This README provides an overview of the "Simple Python Application" workflow to lightsail container, designed to automate the deployment process for a Python-based backend application using GitHub Actions. Additionally, it includes instructions on how to run the application locally using Docker Compose.
 
