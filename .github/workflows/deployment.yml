@@ -5,6 +5,10 @@ on:
   pull_request:
     branches: [main]
 
+
+pertmissions: 
+  id-token: write # Reequired for requesting the jwt token
+
 jobs:
   integration:
     runs-on: ubuntu-latest
