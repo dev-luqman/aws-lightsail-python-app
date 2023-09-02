@@ -6,7 +6,7 @@ on:
     branches: [main]
 
 
-pertmissions: 
+permissions: 
   id-token: write # Reequired for requesting the jwt token
 
 jobs:
