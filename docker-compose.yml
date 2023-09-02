@@ -1,7 +1,7 @@
 version: '3'
 services:
-  ProjectExceed:
-    image: exceed
+  lightsail:
+    image: lightsail-app
     build:
       context: .
       dockerfile: ./Dockerfile
